@@ -14,4 +14,5 @@ func Insert(collection string, data interface {}) error {
 	_, err := c.InsertOne(context.Background(), data)
 
 	return err
+
 }

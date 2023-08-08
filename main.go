@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,43 +11,53 @@ import (
 	"golang.org/x/net/html"
 )
 
-var (
-	visited map[string]bool = map[string]bool{}
-)
-
 type VisitedLinks struct {
 	Website     string    `bson:"website"`
 	Link        string    `bson:"link"`
 	VisitedDate time.Time `bson:"visited_date"`
 }
 
-func main() {
-	visitLink("https://www.github.com")
+var link string
 
+func init() {
+	flag.StringVar(&link, "url", "https://www.github.com", "url para iniciar visitas")
+}
+
+func main() {
+	flag.Parse()
+	done := make(chan bool)
+	go visitLink(link)
+	<-done
 }
 
 func visitLink(link string) {
-	fmt.Println(link)
+	fmt.Printf("visitando: %v\n", link)
 
-	if ok := visited[link]; ok {
-		return
-	}
-	visited[link] = true
 	resp, err := http.Get(link)
 	if err != nil {
-		panic(err)
+		err := fmt.Errorf("unsuported protocol or status != 200 : %v\n error: %v", resp.Status, err)
+		if err != nil {
+			return
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		panic(fmt.Errorf("status != de 200 %v", resp.StatusCode))
+		err := fmt.Errorf("unsuported protocol or status != 200 : %v\n error: %v", resp.Status, err)
+		if err != nil {
+			return
+		}
 	}
 
 	doc, err := html.Parse(resp.Body)
 
 	if err != nil {
-		panic(err)
+		err := fmt.Errorf("an error ocourred\n\t%v", err)
+		if err != nil {
+			return
+		}
 	}
+
 	ExtractLinks(doc)
 
 }
@@ -57,10 +68,16 @@ func ExtractLinks(node *html.Node) {
 			if attrr.Key != "href" {
 				continue
 			}
+
 			link, err := url.Parse(attrr.Val)
-			if err != nil || link.Scheme == "" {
+			if err != nil || link.Scheme == "" || link.Scheme == "mailto" {
 				continue
 			}
+			if db.VisitedLink(link.String()) {
+				fmt.Printf("link ja visitado: %v\n", link)
+				continue
+			}
+
 			// Links = append(Links, link.String())
 			visitedLink := VisitedLinks{
 				Website:     link.Host,
@@ -69,8 +86,7 @@ func ExtractLinks(node *html.Node) {
 			}
 			db.Insert("links", visitedLink)
 
-			visitLink(link.String())
-
+			go visitLink(link.String())
 		}
 	}
 	for c := node.FirstChild; c != nil; c = c.NextSibling {
